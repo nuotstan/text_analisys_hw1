@@ -119,10 +119,10 @@ curl -X POST "http://localhost:8978/detect" \
 Удаление:
 ```bash
 # Остановка контейнера
-docker stop law-links-service
+docker stop law-links-container
 
 # Удаление контейнера и образа
-docker rm law-links-service
+docker rm law-links-container
 docker rmi law-links-service
 ```
 

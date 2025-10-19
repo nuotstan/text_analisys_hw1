@@ -1,0 +1,240 @@
+пп. 1 п. 1 ст. 374 НК РФ
+{
+            "law_id": 15,
+            "article": "374",
+            "point_article": "1",
+            "subpoint_article": "1"
+        }
+
+ст. 105 УК РФ
+{
+            "law_id": 13,
+            "article": "105",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+
+п.  10 АПК
+{
+            "law_id": 0,
+            "article": "",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+
+п. 5 ст. 105 УК РФ
+{
+            "law_id": 13,
+            "article": "105",
+            "point_article": "5",
+            "subpoint_article": ""
+        }
+
+п. 3 ст. 158 УК РФ
+{
+            "law_id": 13,
+            "article": "158",
+            "point_article": "3",
+            "subpoint_article": ""
+        }
+
+ст. 30 Гражданского кодекса Российской Федерации
+{
+            "law_id": 5,
+            "article": "30",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+
+пп. 12 п. 4 ст. 159 УК РФ
+{
+            "law_id": 13,
+            "article": "159",
+            "point_article": "4",
+            "subpoint_article": "12"
+        }
+
+п. 2 ст. 228 УК РФ
+{
+            "law_id": 13,
+            "article": "228",
+            "point_article": "2",
+            "subpoint_article": ""
+        },
+
+ст. 275 Налогового Кодекса Российской Федерации
+{
+            "law_id": 15,
+            "article": "275",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+
+ст. 90 Семейного кодекса Российской Федерации
+{
+            "law_id": 8,
+            "article": "90",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+
+ст. 70 Трудового кодекса Российской Федерации
+{
+            "law_id": 10,
+            "article": "70",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+
+
+п. 1 ст. 213 Гражданского процессуального кодекса Российской Федерации
+{
+            "law_id": 6,
+            "article": "213",
+            "point_article": "1",
+            "subpoint_article": ""
+        },
+
+пункта а ст. 20 АПК
+{
+            "law_id": 0,
+            "article": "20",
+            "point_article": "а",
+            "subpoint_article": ""
+        }
+
+статье 16 Закона "О защите прав потребителей"
+        {
+            "law_id": 984,
+            "article": "16",
+            "point_article": "",
+            "subpoint_article": ""
+        },
+
+п. 2 ст. 14 Закона "О персональных данных"
+        {
+            "law_id": 330,
+            "article": "14",
+            "point_article": "2",
+            "subpoint_article": ""
+        }
+
+ст. 19 Федерального закона "О бухгалтерском учёте"
+        {
+            "law_id": 224,
+            "article": "19",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+п. р ст. 9 Федерального закона "О государственной регистрации юридических лиц и индивидуальных предпринимателей"
+        {
+            "law_id": 412,
+            "article": "9",
+            "point_article": "р",
+            "subpoint_article": ""
+        }
+
+п. 1 ст. 16 Закона "О защите прав юридических лиц и индивидуальных предпринимателей при осуществлении государственного контроля (надзора) и муниципального контроля"
+        {
+            "law_id": 284,
+            "article": "16",
+            "point_article": "1",
+            "subpoint_article": ""
+        }
+
+подпункту 2 пунта б статьи 22 Федерального закона "О государственной гражданской службе Российской Федерации"
+        {
+            "law_id": 362,
+            "article": "22",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+
+ст. 12 Федерального закона "О защите конкуренции"
+        {
+            "law_id": 332,
+            "article": "12",
+            "point_article": "",
+            "subpoint_article": ""
+        }
+
+п. 3 статьи 20 Федерального закона "О полиции"
+        {
+            "law_id": 249,
+            "article": "20",
+            "point_article": "3",
+            "subpoint_article": ""
+        }
+
+пп. 4, 5, 6 и 8 п. 1 ст. 14 Федерального закона "О государственной регистрации недвижимости"
+        {
+            "law_id": 174,
+            "article": "14",
+            "point_article": "1",
+            "subpoint_article": "4"
+        },
+        {
+            "law_id": 174,
+            "article": "14",
+            "point_article": "1",
+            "subpoint_article": "5"
+        },
+        {
+            "law_id": 174,
+            "article": "14",
+            "point_article": "1",
+            "subpoint_article": "6"
+        },
+        {
+            "law_id": 174,
+            "article": "14",
+            "point_article": "1",
+            "subpoint_article": "8"
+        }
+
+пункте 1 статьи 34 Гражданского Кодекса
+        {
+            "law_id": 5,
+            "article": "34",
+            "point_article": "1",
+            "subpoint_article": ""
+        }
+
+подпунктах а, б и с пункта 3.345, 23 в статье 66 НК РФ
+{
+            "law_id": 15,
+            "article": "66",
+            "point_article": "3.345, 23",
+            "subpoint_article": "а"
+        },
+{
+            "law_id": 15,
+            "article": "66",
+            "point_article": "3.345, 23",
+            "subpoint_article": "б"
+        },
+{
+            "law_id": 15,
+            "article": "66",
+            "point_article": "3.345, 23",
+            "subpoint_article": "с"
+        }
+
+часть 3, ст. 30.1 КоАП РФ (постановления об административных правонарушениях обжалуются в суд)
+        {
+            "law_id": 17,
+            "article": "30.1",
+            "point_article": "3",
+            "subpoint_article": ""
+        }
+
+ст. 211 АПК РФ
+        {
+            "law_id": 0,
+            "article": "211",
+            "point_article": "",
+            "subpoint_article": ""
+        },
+
+
+31 ссылка

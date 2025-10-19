@@ -6,6 +6,8 @@ from fastapi import FastAPI, Request, Depends
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
+from process_text import find_links
+
 
 class LawLink(BaseModel):
     law_id: Optional[int] = None
@@ -58,23 +60,30 @@ async def get_law_links(
     Принимает текст и возвращает список юридических ссылок
     """
     # Место для алгоритма распознавания ссылок
-    text_length = len(data.text)
-    print(codex_aliases["1"])
-
-    sample_links = [
-        LawLink(
-            law_id=1,
-            article="12",
-            point_article="б",
-        ),
-        LawLink(
-            law_id=2,
-            article="45",
-            point_article="3",
-            subpoint_article="б",
-        )
-    ]
-    return LinksResponse(links=sample_links)
+    print(f"Получен текст: {data.text[:100]}...")
+    try:
+        all_links = await find_links(data.text)
+        print(f"Найдено ссылок: {len(all_links)}")
+        print(f"Ссылки: {all_links}")
+        
+        # Преобразуем найденные ссылки в объекты LawLink
+        law_links = []
+        for link_data in all_links:
+            law_link = LawLink(
+                law_id=link_data.get("law_id"),
+                article=link_data.get("article"),
+                point_article=link_data.get("point_article"),
+                subpoint_article=link_data.get("subpoint_article")
+            )
+            law_links.append(law_link)
+        
+        print(f"Возвращаем {len(law_links)} ссылок")
+        return LinksResponse(links=law_links)
+    except Exception as e:
+        print(f"Ошибка при обработке: {e}")
+        import traceback
+        traceback.print_exc()
+        return LinksResponse(links=[])
 
 
 @app.get("/health")

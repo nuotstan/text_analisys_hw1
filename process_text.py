@@ -1,256 +1,338 @@
 import re
 import json
-from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
 import asyncio
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Set, Any
+from dataclasses import dataclass
+
+# Импортируем константы и регулярки
+from const import (
+    DOC_ANCHORS, ABBR_LEMMAS, OPTIONAL_LEMMAS,
+    CYR_WORD_RE, UPPER_CYR_RE, MIXED_CYR_RE, NUM_RE, PUNCT_RE, TOKENIZER_RE,
+    NUM_OR_LETTER, LIST_EXPR, ART_LIST, SUB_LABEL_RE, PT_LABEL_RE, ART_LABEL_RE, PT_ART_SEP,
+    MAIN_RE, PT_ONLY_RE, RUS_ALPHA, RUS_INDEX
+)
+
+try:
+    import pymorphy3
+    MORPH = pymorphy3.MorphAnalyzer()
+except ImportError:
+    print("Не установлен pymorphy3. Установите: pip install pymorphy3")
+    MORPH = None
 
 
-class LawLinkExtractor:
-    def __init__(self, law_aliases_path="law_aliases.json"):
-        self.law_aliases = self._load_law_aliases(law_aliases_path)
-        self.law_names = []
-        for key, value in self.law_aliases.items():
-            self.law_names.extend(value)
+# ==========================
+# Продвинутый алгоритм с лемматизацией
+# ==========================
 
-    def _load_law_aliases(self, law_aliases_path):
-        """Загружает law_aliases.json."""
-        with open(law_aliases_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+@dataclass
+class Token:
+    text: str
+    lemma: str
+    is_punct: bool
 
-    def _find_law_id(self, law_name):
-        """Находит law_id по названию закона, используя нечеткий поиск."""
-        if not law_name:
+def tokenize(text: str) -> List[str]:
+    return [next(g for g in m.groups() if g is not None) for m in TOKENIZER_RE.finditer(text)]
+
+def _morph_lemma(tok: str) -> str:
+    if MORPH is None:
+        return tok.lower().replace("ё", "е")
+    try:
+        p = MORPH.parse(tok)[0]
+        return p.normal_form.replace("ё", "е")
+    except Exception:
+        return tok.lower().replace("ё", "е")
+
+def lemma_of_token(tok: str) -> str:
+    if tok == "№":
+        return tok
+    if NUM_RE.match(tok):
+        return tok.replace("–", "-").replace("—", "-")
+    if PUNCT_RE.match(tok):
+        return tok
+    if re.match(r"^[A-Za-z]+$", tok):
+        return tok.lower()
+    if UPPER_CYR_RE.match(tok):
+        return tok.lower().replace("ё", "е")
+    if MIXED_CYR_RE.match(tok) or CYR_WORD_RE.match(tok):
+        return _morph_lemma(tok)
+    return tok.lower().replace("ё", "е")
+
+def to_tokens(text: str) -> List[Token]:
+    toks = tokenize(text)
+    return [Token(text=t, lemma=lemma_of_token(t), is_punct=bool(PUNCT_RE.match(t))) for t in toks]
+
+def join_lemmas(tokens: List[Token], i: int, j: int) -> str:
+    return " ".join(tok.lemma for tok in tokens[i:j] if not tok.is_punct)
+
+def join_lemmas_compact(tokens: List[Token], i: int, j: int, optional: Set[str]) -> str:
+    return " ".join(tok.lemma for tok in tokens[i:j] if (not tok.is_punct) and (tok.lemma not in optional))
+
+@dataclass
+class LawCandidate:
+    law_id: int
+    i: int
+    j: int
+    kind: str
+    tok_count: int
+    has_abbr: bool
+
+class LawAliasIndex:
+    def __init__(self, alias_json: Dict[str, List[str]], allow_compact: bool = False):
+        self.allow_compact = allow_compact
+        self.lemma_to_id: Dict[str, int] = {}
+        self.compact_to_id: Dict[str, int] = {}
+        self.max_alias_len = 1
+
+        compact_to_ids: Dict[str, Set[int]] = {}
+
+        for sid, variants in alias_json.items():
+            try:
+                law_id = int(sid)
+            except Exception:
+                continue
+            for v in variants:
+                toks = [tok for tok in to_tokens(v) if not tok.is_punct]
+                lemmas = [tok.lemma for tok in toks]
+                if not lemmas:
+                    continue
+
+                key = " ".join(lemmas)
+                if key not in self.lemma_to_id:
+                    self.lemma_to_id[key] = law_id
+                self.max_alias_len = max(self.max_alias_len, len(lemmas))
+
+                if self.allow_compact:
+                    compact_tokens = [l for l in lemmas if l not in OPTIONAL_LEMMAS]
+                    if len(compact_tokens) >= 2:
+                        compact_key = " ".join(compact_tokens)
+                        compact_to_ids.setdefault(compact_key, set()).add(law_id)
+
+        if self.allow_compact:
+            self.compact_to_id = {k: next(iter(v)) for k, v in compact_to_ids.items() if len(v) == 1}
+
+    def _collect_candidates(self, toks: List[Token]) -> List[LawCandidate]:
+        n = len(toks)
+        cands: List[LawCandidate] = []
+        if n == 0:
+            return cands
+
+        max_len = min(self.max_alias_len, n)
+        for length in range(max_len, 0, -1):
+            for i in range(0, n - length + 1):
+                j = i + length
+
+                key = join_lemmas(toks, i, j)
+                if key in self.lemma_to_id:
+                    has_abbr = any(t.lemma in ABBR_LEMMAS for t in toks[i:j])
+                    tok_cnt = len([t for t in toks[i:j] if not t.is_punct])
+                    cands.append(LawCandidate(self.lemma_to_id[key], i, j, "exact", tok_cnt, has_abbr))
+                    continue
+
+                if self.allow_compact:
+                    ckey = join_lemmas_compact(toks, i, j, OPTIONAL_LEMMAS)
+                    if ckey and (len(ckey.split()) >= 2) and (ckey in self.compact_to_id):
+                        has_abbr = any(t.lemma in ABBR_LEMMAS for t in toks[i:j])
+                        tok_cnt = len(ckey.split())
+                        cands.append(LawCandidate(self.compact_to_id[ckey], i, j, "compact", tok_cnt, has_abbr))
+        return cands
+
+    @staticmethod
+    def _rank(c: LawCandidate) -> Tuple[int, int, int, int]:
+        kind_rank = 0 if c.kind == "exact" else 1
+        abbr_rank = 0 if c.has_abbr else 1
+        return (kind_rank, c.i, -c.tok_count, abbr_rank)
+
+    def best_in_tokens(self, toks: List[Token]) -> Optional[int]:
+        cands = self._collect_candidates(toks)
+        if not cands:
             return None
-            
-        # Сначала попробуем точное совпадение
-        for law_id, aliases in self.law_aliases.items():
-            for alias in aliases:
-                if law_name.lower().strip() == alias.lower().strip():
-                    return int(law_id)
-        
-        # Простая нормализация (убираем лишние пробелы и приводим к нижнему регистру)
-        law_name_normalized = ' '.join(law_name.lower().split())
-        for law_id, aliases in self.law_aliases.items():
-            for alias in aliases:
-                alias_normalized = ' '.join(alias.lower().split())
-                if law_name_normalized == alias_normalized:
-                    return int(law_id)
+        cands.sort(key=self._rank)
+        return cands[0].law_id
 
-        # Fuzzy matching
-        best_match, score = process.extractOne(law_name, self.law_names, scorer=fuzz.ratio)
-        if score > 75:  # threshold
-            for law_id, aliases in self.law_aliases.items():
-                for alias in aliases:
-                    if best_match == alias:
-                        return int(law_id)
+def _build_lookahead_window(post_text: str, max_nonpunct_lookahead: int) -> List[Token]:
+    toks = to_tokens(post_text)
+    window: List[Token] = []
+    nonp = 0
 
+    in_ascii = False
+    in_angle = False
+    in_smart = False
+    anchor_before_quotes = False
+
+    def in_quotes() -> bool:
+        return in_ascii or in_angle or in_smart
+
+    for t in toks:
+        window.append(t)
+        if not t.is_punct:
+            nonp += 1
+            if t.lemma in DOC_ANCHORS or t.lemma in ABBR_LEMMAS:
+                anchor_before_quotes = True
+
+        if t.text == '"':
+            in_ascii = not in_ascii
+        elif t.text == '«':
+            in_angle = True
+        elif t.text == '»':
+            in_angle = False
+        elif t.text in {'"', '„'}:
+            in_smart = True
+        elif t.text in {'"', '‟'}:
+            in_smart = False
+
+        if nonp >= max_nonpunct_lookahead and not (anchor_before_quotes and in_quotes()):
+            break
+
+        if len(window) > 800:
+            break
+
+    return window
+
+def find_law_after(text: str, start_char: int, idx: LawAliasIndex, max_nonpunct_lookahead: int = 12) -> Optional[int]:
+    post_text = text[start_char:]
+    window = _build_lookahead_window(post_text, max_nonpunct_lookahead)
+    if not window:
         return None
+    return idx.best_in_tokens(window)
 
-    def _parse_subpoints(self, subpoint_text: str) -> List[str]:
-        """Парсит подпункты из текста типа '1, 2, 3' или 'а, б, в'"""
-        if not subpoint_text:
-            return []
-        
-        # Убираем лишние пробелы и разбиваем по запятым
-        subpoints = [sp.strip() for sp in subpoint_text.split(',')]
-        # Убираем пустые элементы
-        return [sp for sp in subpoints if sp]
+def has_article_label_ahead(text: str, start_char: int, max_nonpunct_lookahead: int = 12) -> bool:
+    post_text = text[start_char:]
+    toks = to_tokens(post_text)
+    cnt = 0
+    for t in toks:
+        if not t.is_punct:
+            cnt += 1
+            if t.lemma == "статья" or t.lemma == "ст":
+                return True
+            if cnt >= max_nonpunct_lookahead:
+                break
+    return False
 
-    def _parse_complex_subpoints(self, subpoint_text: str) -> List[str]:
-        """Парсит сложные подпункты типа 'а, б и с'"""
-        if not subpoint_text:
-            return []
-        
-        # Обрабатываем "а, б и с" -> ["а", "б", "с"]
-        subpoints = []
-        # Разбиваем по запятым и "и"
-        parts = re.split(r'[,и]', subpoint_text)
-        for part in parts:
-            part = part.strip()
-            if part:
-                subpoints.append(part)
-        
-        return subpoints
+def norm_list_text(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    s = s.strip()
+    s = s.replace("–", "-").replace("—", "-")
+    s = re.sub(r"\s*-\s*", "-", s)
+    s = re.sub(r"\s+", " ", s)
+    return s
 
-    async def find_links_from_text(self, text: str) -> List[Dict]:
-        """
-        Правильный алгоритм извлечения ссылок:
-        1. Нормализуем текст
-        2. Ищем все возможные названия законов в тексте
-        3. Сопоставляем с базой алиасов
-        4. Извлекаем номера статей, пунктов, подпунктов рядом с найденными законами
-        """
-        links = []
-        
-        # Нормализуем текст
-        normalized_text = ' '.join(text.split())
-        
-        # Ищем все возможные названия законов в тексте
-        for law_id, aliases in self.law_aliases.items():
-            for alias in aliases:
-                # Ищем упоминания этого алиаса в тексте
-                alias_positions = []
-                start = 0
-                while True:
-                    pos = normalized_text.lower().find(alias.lower(), start)
-                    if pos == -1:
-                        break
-                    alias_positions.append(pos)
-                    start = pos + 1
-                
-                # Для каждого найденного упоминания ищем рядом статьи, пункты, подпункты
-                for pos in alias_positions:
-                    # Ищем в окрестности ±200 символов от найденного алиаса
-                    context_start = max(0, pos - 200)
-                    context_end = min(len(normalized_text), pos + 200)
-                    context = normalized_text[context_start:context_end]
-                    
-                    # Ищем статьи, пункты, подпункты в контексте
-                    found_links = self._extract_links_from_context(context, int(law_id))
-                    links.extend(found_links)
-        
-        # Убираем дубликаты
-        unique_links = []
-        seen = set()
-        for link in links:
-            link_key = (link["law_id"], link["article"], link["point_article"], link["subpoint_article"])
-            if link_key not in seen:
-                seen.add(link_key)
-                unique_links.append(link)
-        
-        return unique_links
-    
-    def _extract_links_from_context(self, context: str, law_id: int) -> List[Dict]:
-        """Извлекает ссылки из контекста вокруг найденного закона"""
-        links = []
-        
-        # Паттерны для поиска статей, пунктов, подпунктов
-        patterns = [
-            # пп. 1, 2, 3 п. 1 ст. 374
-            r'пп\.?\s*([^п]+?)\s+п\.?\s*([0-9]+(?:\.[0-9]+)*)\s+ст\.?\s*([0-9]+(?:\.[0-9]+)*)',
-            # п. 1 ст. 374
-            r'п\.?\s*([0-9]+(?:\.[0-9]+)*)\s+ст\.?\s*([0-9]+(?:\.[0-9]+)*)',
-            # ст. 374
-            r'ст\.?\s*([0-9]+(?:\.[0-9]+)*)',
-            # статья 374
-            r'стать[еи]\s+([0-9]+(?:\.[0-9]+)*)',
-            # пункта а ст. 20
-            r'пункта\s+([а-я])\s+ст\.?\s*([0-9]+(?:\.[0-9]+)*)',
-            # пункте 1 статьи 34
-            r'пункте\s+([0-9]+(?:\.[0-9]+)*)\s+статьи\s+([0-9]+(?:\.[0-9]+)*)',
-            # подпункту 2 пунта б статьи 22
-            r'подпункту\s+([0-9]+)\s+пунта\s+([а-я])\s+статьи\s+([0-9]+(?:\.[0-9]+)*)',
-            # подпунктах а, б и с пункта 3.345, 23 в статье 66
-            r'подпунктах\s+([^п]+?)\s+пункта\s+([^в]+?)\s+в\s+статье\s+([0-9]+(?:\.[0-9]+)*)',
-            # часть 3, ст. 30.1
-            r'часть\s+([0-9]+),\s*ст\.?\s*([0-9]+(?:\.[0-9]+)*)',
-        ]
-        
-        for pattern in patterns:
-            matches = re.finditer(pattern, context, re.IGNORECASE)
-            for match in matches:
-                groups = match.groups()
-                match_text = match.group(0)
-                
-                if len(groups) == 3:  # пп. п. ст. или подпунктах а, б и с
-                    if 'подпунктах' in match_text:
-                        # подпунктах а, б и с пункта 3.345, 23 в статье 66
-                        subpoints_text, point_text, article_text = groups
-                        subpoints = self._parse_complex_subpoints(subpoints_text)
-                        for subpoint in subpoints:
-                            links.append({
-                                "law_id": law_id,
-                                "article": article_text.strip(),
-                                "point_article": point_text.strip(),
-                                "subpoint_article": subpoint
-                            })
-                    else:
-                        # пп. 1 п. 1 ст. 374
-                        subpoint_text, point_text, article_text = groups
-                        subpoints = self._parse_subpoints(subpoint_text)
-                        if subpoints:
-                            for subpoint in subpoints:
-                                links.append({
-                                    "law_id": law_id,
-                                    "article": article_text.strip(),
-                                    "point_article": point_text.strip(),
-                                    "subpoint_article": subpoint
-                                })
-                        else:
-                            links.append({
-                                "law_id": law_id,
-                                "article": article_text.strip(),
-                                "point_article": point_text.strip(),
-                                "subpoint_article": None
-                            })
-                
-                elif len(groups) == 2:  # п. ст., пункта а ст., пункте 1 статьи, часть 3, ст.
-                    if 'часть' in match_text:
-                        # часть 3, ст. 30.1
-                        part_text, article_text = groups
-                        links.append({
-                            "law_id": law_id,
-                            "article": article_text.strip(),
-                            "point_article": part_text.strip(),
-                            "subpoint_article": None
-                        })
-                    elif 'пункта' in match_text:
-                        # пункта а ст. 20
-                        point_text, article_text = groups
-                        links.append({
-                            "law_id": law_id,
-                            "article": article_text.strip(),
-                            "point_article": point_text.strip(),
-                            "subpoint_article": None
-                        })
-                    elif 'пункте' in match_text:
-                        # пункте 1 статьи 34
-                        point_text, article_text = groups
-                        links.append({
-                            "law_id": law_id,
-                            "article": article_text.strip(),
-                            "point_article": point_text.strip(),
-                            "subpoint_article": None
-                        })
-                    else:
-                        # п. 1 ст. 374
-                        point_text, article_text = groups
-                        links.append({
-                            "law_id": law_id,
-                            "article": article_text.strip(),
-                            "point_article": point_text.strip(),
-                            "subpoint_article": None
-                        })
-                
-                elif len(groups) == 1:  # ст. 374, статья 374
-                    article_text = groups[0]
-                    links.append({
-                        "law_id": law_id,
-                        "article": article_text.strip(),
-                        "point_article": None,
-                        "subpoint_article": None
-                    })
-        
-        # Убираем дубликаты
-        unique_links = []
-        seen = set()
-        for link in links:
-            link_key = (link["law_id"], link["article"], link["point_article"], link["subpoint_article"])
-            if link_key not in seen:
-                seen.add(link_key)
-                unique_links.append(link)
-        
-        return unique_links
+def _expand_numeric_range(a: str, b: str) -> Optional[List[str]]:
+    if not (a.isdigit() and b.isdigit()):
+        return None
+    start, end = int(a), int(b)
+    if start > end:
+        return None
+    if end - start > 400:
+        return None
+    return [str(x) for x in range(start, end + 1)]
 
+def _expand_letter_range(a: str, b: str) -> Optional[List[str]]:
+    a = a.lower().replace("ё", "е")
+    b = b.lower().replace("ё", "е")
+    if a not in RUS_INDEX or b not in RUS_INDEX:
+        return None
+    ia, ib = RUS_INDEX[a], RUS_INDEX[b]
+    if ia > ib:
+        return None
+    if ib - ia > 40:
+        return None
+    return [RUS_ALPHA[i] for i in range(ia, ib + 1)]
+
+def expand_subpoints(sub_list: str) -> List[str]:
+    if not sub_list:
+        return [""]
+    tmp = re.sub(r"\s+(?:и|или)\s+", ",", sub_list.strip(), flags=re.IGNORECASE)
+    raw_items = [x.strip() for x in tmp.split(",") if x.strip()]
+    out: List[str] = []
+    for it in raw_items:
+        it_norm = it.replace("–", "-").replace("—", "-").strip()
+        m_num = re.match(r"^(\d+)\-(\d+)$", it_norm)
+        if m_num:
+            a, b = m_num.group(1), m_num.group(2)
+            exp = _expand_numeric_range(a, b)
+            if exp:
+                out.extend(exp)
+                continue
+        m_let = re.match(r"^([А-Яа-яЁё])\-([А-Яа-яЁё])$", it_norm)
+        if m_let:
+            a, b = m_let.group(1), m_let.group(2)
+            exp = _expand_letter_range(a, b)
+            if exp:
+                out.extend(exp)
+                continue
+        out.append(it_norm)
+    return out if out else [""]
+
+def build_link(law_id: int, article: str, point_article: str = "", subpoint_article: str = "") -> Dict[str, Any]:
+    return {
+                    "law_id": law_id,
+                    "article": article if article else None,
+                    "point_article": point_article if point_article else None,
+                    "subpoint_article": subpoint_article if subpoint_article else None,
+                }
+
+def extract_links_advanced(text: str, idx: LawAliasIndex, lookahead: int = 12) -> List[Dict[str, Any]]:
+    links: List[Dict[str, Any]] = []
+    used_spans: List[Tuple[int, int]] = []
+
+    def overlaps(a: Tuple[int, int], b: Tuple[int, int]) -> bool:
+        return not (a[1] <= b[0] or b[1] <= a[0])
+
+    # 1) [подпункт?] [пункт/часть?] ст. N ...
+    for m in MAIN_RE.finditer(text):
+        span = m.span()
+        if any(overlaps(span, s) for s in used_spans):
+            continue
+
+        law_id = find_law_after(text, m.end(), idx, max_nonpunct_lookahead=lookahead)
+        if law_id is None:
+            continue
+
+        sub_list = norm_list_text(m.group("sub_list"))
+        pt_list  = norm_list_text(m.group("pt_list"))
+        art_list = norm_list_text(m.group("art_list"))
+
+        if sub_list and pt_list:
+            for sub in expand_subpoints(sub_list):
+                links.append(build_link(law_id, article=art_list, point_article=pt_list, subpoint_article=sub))
+        else:
+            links.append(build_link(law_id, article=art_list, point_article=pt_list, subpoint_article=""))
+
+        used_spans.append(span)
+
+    # 2) п./ч. N ... (без статьи)
+    for m in PT_ONLY_RE.finditer(text):
+        span = m.span()
+        if any(overlaps(span, s) for s in used_spans):
+            continue
+
+        if has_article_label_ahead(text, m.end(), max_nonpunct_lookahead=lookahead):
+            continue
+
+        law_id = find_law_after(text, m.end(), idx, max_nonpunct_lookahead=lookahead)
+        if law_id is None:
+            continue
+
+        links.append(build_link(law_id, article="", point_article="", subpoint_article=""))
+        used_spans.append(span)
+
+        return links
 
 async def find_links(text: str) -> List[Dict]:
     """
     Основная функция для извлечения ссылок из текста.
-    Возвращает список словарей с найденными ссылками.
+    Использует продвинутый алгоритм с лемматизацией и морфологическим анализом.
     """
-    extractor = LawLinkExtractor()
-    links = await extractor.find_links_from_text(text)
+    # Загружаем алиасы законов
+    with open("law_aliases.json", "r", encoding="utf-8") as f:
+        aliases = json.load(f)
+    
+    # Создаем индекс алиасов
+    idx = LawAliasIndex(aliases, allow_compact=True)
+    
+    # Извлекаем ссылки
+    links = extract_links_advanced(text, idx, lookahead=12)
     return links
 
 

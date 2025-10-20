@@ -12,8 +12,7 @@ idna==3.11
 Levenshtein==0.27.1
 pydantic==2.12.3
 pydantic_core==2.41.4
-pymorphy2==0.9.1
-pymorphy2-dicts-ru==2.4.417127.4579844
+pymorphy3==2.0.6
 python-Levenshtein==0.27.1
 RapidFuzz==3.14.1
 setuptools==80.9.0

@@ -63,6 +63,8 @@ async def get_law_links(
     print(f"Получен текст: {data.text[:100]}...")
     try:
         all_links = await find_links(data.text)
+        if all_links is None:
+            all_links = []
         print(f"Найдено ссылок: {len(all_links)}")
         print(f"Ссылки: {all_links}")
         

@@ -1,10 +1,12 @@
-import re
-import json
-import asyncio
-from typing import List, Dict, Optional, Tuple, Set, Any
-from dataclasses import dataclass
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-# Импортируем константы и регулярки
+import json
+import re
+from dataclasses import dataclass
+from typing import List, Tuple, Optional, Dict, Any, Set
+
+# Импортируем все константы и регулярки
 from const import (
     DOC_ANCHORS, ABBR_LEMMAS, OPTIONAL_LEMMAS,
     CYR_WORD_RE, UPPER_CYR_RE, MIXED_CYR_RE, NUM_RE, PUNCT_RE, TOKENIZER_RE,
@@ -18,11 +20,6 @@ try:
 except ImportError:
     print("Не установлен pymorphy3. Установите: pip install pymorphy3")
     MORPH = None
-
-
-# ==========================
-# Продвинутый алгоритм с лемматизацией
-# ==========================
 
 @dataclass
 class Token:
@@ -67,12 +64,13 @@ def join_lemmas(tokens: List[Token], i: int, j: int) -> str:
 def join_lemmas_compact(tokens: List[Token], i: int, j: int, optional: Set[str]) -> str:
     return " ".join(tok.lemma for tok in tokens[i:j] if (not tok.is_punct) and (tok.lemma not in optional))
 
+
 @dataclass
 class LawCandidate:
     law_id: int
     i: int
     j: int
-    kind: str
+    kind: str     # "exact" | "compact"
     tok_count: int
     has_abbr: bool
 
@@ -208,6 +206,7 @@ def has_article_label_ahead(text: str, start_char: int, max_nonpunct_lookahead: 
                 break
     return False
 
+
 def norm_list_text(s: Optional[str]) -> str:
     if not s:
         return ""
@@ -223,6 +222,7 @@ def _expand_numeric_range(a: str, b: str) -> Optional[List[str]]:
     start, end = int(a), int(b)
     if start > end:
         return None
+    # ограничение на раздувание, чтобы не улететь в сотни ссылок
     if end - start > 400:
         return None
     return [str(x) for x in range(start, end + 1)]
@@ -240,8 +240,15 @@ def _expand_letter_range(a: str, b: str) -> Optional[List[str]]:
     return [RUS_ALPHA[i] for i in range(ia, ib + 1)]
 
 def expand_subpoints(sub_list: str) -> List[str]:
+    """
+    Разворачивает перечень подпунктов:
+    - разделители: запятые, 'и', 'или'
+    - диапазоны чисел: 6-12 -> 6,7,8,9,10,11,12
+    - диапазоны букв: а-г -> а,б,в,г
+    """
     if not sub_list:
         return [""]
+    # заменяем ' и ' / ' или ' на запятые
     tmp = re.sub(r"\s+(?:и|или)\s+", ",", sub_list.strip(), flags=re.IGNORECASE)
     raw_items = [x.strip() for x in tmp.split(",") if x.strip()]
     out: List[str] = []
@@ -266,13 +273,13 @@ def expand_subpoints(sub_list: str) -> List[str]:
 
 def build_link(law_id: int, article: str, point_article: str = "", subpoint_article: str = "") -> Dict[str, Any]:
     return {
-                    "law_id": law_id,
-                    "article": article if article else None,
-                    "point_article": point_article if point_article else None,
-                    "subpoint_article": subpoint_article if subpoint_article else None,
-                }
+        "law_id": law_id,
+        "article": article if article else None,
+        "point_article": point_article if point_article else None,
+        "subpoint_article": subpoint_article if subpoint_article else None,
+    }
 
-def extract_links_advanced(text: str, idx: LawAliasIndex, lookahead: int = 12) -> List[Dict[str, Any]]:
+def extract_links(text: str, idx: LawAliasIndex, lookahead: int = 12) -> List[Dict[str, Any]]:
     links: List[Dict[str, Any]] = []
     used_spans: List[Tuple[int, int]] = []
 
@@ -293,6 +300,7 @@ def extract_links_advanced(text: str, idx: LawAliasIndex, lookahead: int = 12) -
         pt_list  = norm_list_text(m.group("pt_list"))
         art_list = norm_list_text(m.group("art_list"))
 
+        # Подпункты разворачиваем ТОЛЬКО если распознан пункт/часть
         if sub_list and pt_list:
             for sub in expand_subpoints(sub_list):
                 links.append(build_link(law_id, article=art_list, point_article=pt_list, subpoint_article=sub))
@@ -301,7 +309,7 @@ def extract_links_advanced(text: str, idx: LawAliasIndex, lookahead: int = 12) -
 
         used_spans.append(span)
 
-    # 2) п./ч. N ... (без статьи)
+    # 2) п./ч. N ...
     for m in PT_ONLY_RE.finditer(text):
         span = m.span()
         if any(overlaps(span, s) for s in used_spans):
@@ -317,23 +325,27 @@ def extract_links_advanced(text: str, idx: LawAliasIndex, lookahead: int = 12) -
         links.append(build_link(law_id, article="", point_article="", subpoint_article=""))
         used_spans.append(span)
 
-        return links
+    return links
 
 async def find_links(text: str) -> List[Dict]:
     """
     Основная функция для извлечения ссылок из текста.
     Использует продвинутый алгоритм с лемматизацией и морфологическим анализом.
     """
-    # Загружаем алиасы законов
-    with open("law_aliases.json", "r", encoding="utf-8") as f:
-        aliases = json.load(f)
-    
-    # Создаем индекс алиасов
-    idx = LawAliasIndex(aliases, allow_compact=True)
-    
-    # Извлекаем ссылки
-    links = extract_links_advanced(text, idx, lookahead=12)
-    return links
-
-
-
+    try:
+        # Загружаем алиасы законов
+        with open("law_aliases.json", "r", encoding="utf-8") as f:
+            aliases = json.load(f)
+        
+        # Создаем индекс алиасов
+        idx = LawAliasIndex(aliases, allow_compact=True)
+        
+        # Извлекаем ссылки
+        links = extract_links(text, idx, lookahead=12)
+        print(f"DEBUG: extract_links вернул: {links}")
+        return links if links is not None else []
+    except Exception as e:
+        print(f"Ошибка в find_links: {e}")
+        import traceback
+        traceback.print_exc()
+        return []

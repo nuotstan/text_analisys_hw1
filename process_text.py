@@ -273,11 +273,11 @@ def expand_subpoints(sub_list: str) -> List[str]:
 
 def build_link(law_id: int, article: str, point_article: str = "", subpoint_article: str = "") -> Dict[str, Any]:
     return {
-        "law_id": law_id,
-        "article": article if article else None,
-        "point_article": point_article if point_article else None,
-        "subpoint_article": subpoint_article if subpoint_article else None,
-    }
+                    "law_id": law_id,
+                    "article": article if article else None,
+                    "point_article": point_article if point_article else None,
+                    "subpoint_article": subpoint_article if subpoint_article else None,
+                }
 
 def extract_links(text: str, idx: LawAliasIndex, lookahead: int = 12) -> List[Dict[str, Any]]:
     links: List[Dict[str, Any]] = []
@@ -286,8 +286,12 @@ def extract_links(text: str, idx: LawAliasIndex, lookahead: int = 12) -> List[Di
     def overlaps(a: Tuple[int, int], b: Tuple[int, int]) -> bool:
         return not (a[1] <= b[0] or b[1] <= a[0])
 
+    print(f"DEBUG: Ищем паттерны MAIN_RE в тексте: '{text}'")
+    main_matches = list(MAIN_RE.finditer(text))
+    print(f"DEBUG: Найдено MAIN_RE совпадений: {len(main_matches)}")
+    
     # 1) [подпункт?] [пункт/часть?] ст. N ...
-    for m in MAIN_RE.finditer(text):
+    for m in main_matches:
         span = m.span()
         if any(overlaps(span, s) for s in used_spans):
             continue
@@ -327,21 +331,36 @@ def extract_links(text: str, idx: LawAliasIndex, lookahead: int = 12) -> List[Di
 
     return links
 
+# Глобальный индекс законов (инициализируется при старте приложения)
+_global_law_index = None
+
+def initialize_law_index(aliases: Dict[str, List[str]]) -> None:
+    """
+    Инициализирует глобальный индекс законов при старте приложения.
+    """
+    global _global_law_index
+    try:
+        _global_law_index = LawAliasIndex(aliases, allow_compact=True)
+        print(f"✅ Индекс законов инициализирован: {len(aliases)} законов")
+    except Exception as e:
+        print(f"❌ Ошибка инициализации индекса: {e}")
+        _global_law_index = None
+
 async def find_links(text: str) -> List[Dict]:
     """
     Основная функция для извлечения ссылок из текста.
     Использует продвинутый алгоритм с лемматизацией и морфологическим анализом.
     """
+    global _global_law_index
+    
     try:
-        # Загружаем алиасы законов
-        with open("law_aliases.json", "r", encoding="utf-8") as f:
-            aliases = json.load(f)
+        if _global_law_index is None:
+            print("❌ Индекс законов не инициализирован!")
+            return []
         
-        # Создаем индекс алиасов
-        idx = LawAliasIndex(aliases, allow_compact=True)
-        
-        # Извлекаем ссылки
-        links = extract_links(text, idx, lookahead=12)
+        # Извлекаем ссылки используя глобальный индекс
+        print(f"DEBUG: Ищем ссылки в тексте: '{text}'")
+        links = extract_links(text, _global_law_index, lookahead=12)
         print(f"DEBUG: extract_links вернул: {links}")
         return links if links is not None else []
     except Exception as e:

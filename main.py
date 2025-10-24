@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, Depends
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
-from process_text import find_links
+from process_text import find_links, initialize_law_index
 
 
 class LawLink(BaseModel):
@@ -27,14 +27,17 @@ class TextRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    with open("law_aliases.json", "r") as file:
+    print("🚀 Сервис запускается...")
+    with open("law_aliases.json", "r", encoding="utf-8") as file:
         codex_aliases = json.load(file)
     
+    # Инициализируем глобальный индекс законов
+    initialize_law_index(codex_aliases)
+    
     app.state.codex_aliases = codex_aliases
-    print("🚀 Сервис запускается...")
+    print("✅ Сервис готов к работе!")
     yield
     # Shutdown
-    del codex_aliases
     print("🛑 Сервис завершается...")
 
 

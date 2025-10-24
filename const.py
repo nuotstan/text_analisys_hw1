@@ -17,7 +17,7 @@ CYR_WORD_RE = re.compile(r"^[А-Яа-яЁё]+$")
 UPPER_CYR_RE = re.compile(r"^[А-ЯЁ]{2,}$")
 MIXED_CYR_RE = re.compile(r"^[А-ЯЁ][а-яё]+$")
 NUM_RE = re.compile(r"^\d+(?:\.\d+)*(?:[-–—]\d+(?:\.\d+)*)?$")
-PUNCT_RE = re.compile(r"^[\.\,\;\:\!\?KATEX_INLINE_OPENKATEX_INLINE_CLOSE```math```\{\}\"«»""„‟‹›—–\-]+$")
+PUNCT_RE = re.compile(r"^[\.\,\;\:\!\?KATEX_INLINE_OPENKATEX_INLINE_CLOSE```math```\{\}\"«»""„‟‹›—–\\-]+$")
 
 TOKENIZER_RE = re.compile(
     r"""
@@ -93,15 +93,13 @@ ARTICLE_LAW_RE = re.compile(
 RUS_ALPHA = list("абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
 RUS_INDEX = {ch: i for i, ch in enumerate(RUS_ALPHA)}
 
-# ==========================
-# Регулярные выражения для токенизации
-# ==========================
 
+# Регулярные выражения для токенизации
 CYR_WORD_RE = re.compile(r"^[А-Яа-яЁё]+$")
 UPPER_CYR_RE = re.compile(r"^[А-ЯЁ]{2,}$")
 MIXED_CYR_RE = re.compile(r"^[А-ЯЁ][а-яё]+$")
 NUM_RE = re.compile(r"^\d+(?:\.\d+)*(?:[-–—]\d+(?:\.\d+)*)?$")
-PUNCT_RE = re.compile(r"^[\.\,\;\:\!\?KATEX_INLINE_OPENKATEX_INLINE_CLOSE```math```\{\}\"«»""„‟‹›—–\-]+$")
+PUNCT_RE = re.compile(r"^[\.\,\;\:\!\?KATEX_INLINE_OPENKATEX_INLINE_CLOSE```math```\{\}\"«»""„‟‹›—–\\-]+$")
 
 TOKENIZER_RE = re.compile(
     r"""
